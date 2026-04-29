@@ -1,0 +1,57 @@
+name: WLC Analysis
+
+on:
+  push:
+    branches: [main]
+
+env:
+  WLC_PORTAL_URL: https://api-homolog.weluvcode.ai
+  WLC_REPOSITORY_ID: "114"
+
+jobs:
+  trigger-wlc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger WLC Analysis
+        id: trigger
+        run: |
+          RESPONSE=$(curl -sS -w "\n%{http_code}" -X POST \
+            "$WLC_PORTAL_URL/webhooks/push-analysis" \
+            -H "Authorization: Bearer ${{ secrets.WLC_AUTH_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"repository_id\": $WLC_REPOSITORY_ID,
+              \"branch\": \"${{ github.ref_name }}\",
+              \"commit_sha\": \"${{ github.sha }}\"
+            }")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "http_code=$HTTP_CODE" >> "$GITHUB_OUTPUT"
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$BODY" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          if [ "$HTTP_CODE" = "202" ]; then
+            echo "::notice::WLC analysis dispatched (HTTP 202)"
+          elif [ "$HTTP_CODE" = "422" ]; then
+            echo "::warning::WLC repo paused — analysis NOT dispatched (HTTP 422). Expected when monitoring is off."
+          else
+            echo "::error::Unexpected HTTP $HTTP_CODE: $BODY"
+            exit 1
+          fi
+
+      - name: Summary
+        run: |
+          {
+            echo "### WLC Analysis Webhook"
+            echo "- HTTP code: ${{ steps.trigger.outputs.http_code }}"
+            echo "- Branch: ${{ github.ref_name }}"
+            echo "- Commit: ${{ github.sha }}"
+            echo ""
+            echo "Response body:"
+            echo '```json'
+            echo "${{ steps.trigger.outputs.body }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
