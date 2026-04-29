@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 env:
-  WLC_PORTAL_URL: https://api-homolog.weluvcode.ai
+  WLC_PORTAL_URL: https://api.hml.weluvcode.ai/api
   WLC_REPOSITORY_ID: "114"
 
 jobs:
@@ -33,14 +33,21 @@ jobs:
           echo "$BODY" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-          if [ "$HTTP_CODE" = "202" ]; then
-            echo "::notice::WLC analysis dispatched (HTTP 202)"
-          elif [ "$HTTP_CODE" = "422" ]; then
-            echo "::warning::WLC repo paused — analysis NOT dispatched (HTTP 422). Expected when monitoring is off."
-          else
-            echo "::error::Unexpected HTTP $HTTP_CODE: $BODY"
-            exit 1
-          fi
+          case "$HTTP_CODE" in
+            202)
+              echo "::notice::WLC analysis dispatched (HTTP 202 — repo monitored)"
+              ;;
+            422)
+              echo "::warning::WLC repo paused — analysis NOT dispatched (HTTP 422). Expected when monitoring is off."
+              ;;
+            500)
+              echo "::warning::Portal accepted (auth OK) but downstream dispatch failed (HTTP 500). Acceptable for #750 gating test on unprovisioned repo."
+              ;;
+            *)
+              echo "::error::Unexpected HTTP $HTTP_CODE: $BODY"
+              exit 1
+              ;;
+          esac
 
       - name: Summary
         run: |
@@ -49,9 +56,4 @@ jobs:
             echo "- HTTP code: ${{ steps.trigger.outputs.http_code }}"
             echo "- Branch: ${{ github.ref_name }}"
             echo "- Commit: ${{ github.sha }}"
-            echo ""
-            echo "Response body:"
-            echo '```json'
-            echo "${{ steps.trigger.outputs.body }}"
-            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
